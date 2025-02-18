@@ -1,0 +1,12 @@
+<div>
+    <p>Current count: <span id="display-counter">{{ .Count }}</span></p>
+    <button id="water-drop" class="water-drop-btn"
+            hx-post="/increment"
+            hx-target="#display-counter"
+            hx-swap="innerHTML">
+        <!-- Inline SVG for a water drop icon -->
+        <svg id="water-drop-icon" width="50" height="50" viewBox="0 0 24 24">
+            <path d="M12 2C12 2 6 9.14 6 13a6 6 0 0012 0c0-3.86-6-11-6-11z" fill="blue"/>
+        </svg>
+    </button>
+</div>
