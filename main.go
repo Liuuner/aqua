@@ -25,6 +25,8 @@ var (
 
 var jwtKey = []byte(os.Getenv("JWT_KEY"))
 
+var bottleSizes = []int{330, 500, 750, 1000, 1500}
+
 // Claims defines the structure for our JWT payload.
 type Claims struct {
 	UserID string `json:"user_id"`
@@ -33,6 +35,9 @@ type Claims struct {
 
 //go:embed templates/*
 var templateFS embed.FS
+
+//go:embed static/*
+var staticFS embed.FS
 
 func main() {
 	/*if len(jwtKey) == 0 {
@@ -67,6 +72,9 @@ func main() {
 
 	templates = template.Must(template.ParseFS(templateFS, "templates/*.html"))
 
+	// serve static files
+	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
+
 	// Setup routes.
 	http.HandleFunc("/", homeHandler)
 	http.HandleFunc("/login", loginHandler)
@@ -96,19 +104,43 @@ func initDB() error {
 
 	// Create the "water_counts" table.
 	waterCountsTable := `
- CREATE TABLE IF NOT EXISTS water_counts (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id STRING NOT NULL,
-  date TEXT NOT NULL,
-  count_330ml INTEGER NOT NULL DEFAULT 0,
-  count_500ml INTEGER NOT NULL DEFAULT 0,
-  count_750ml INTEGER NOT NULL DEFAULT 0,
-  count_1000ml INTEGER NOT NULL DEFAULT 0,
-  count_1500ml INTEGER NOT NULL DEFAULT 0,
-  UNIQUE(user_id, date),
-  FOREIGN KEY(user_id) REFERENCES users(id)
+ CREATE TABLE IF NOT EXISTS water_intake (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id STRING NOT NULL,
+    date DATE NOT NULL,
+    bottle_size_id INTEGER NOT NULL,
+    quantity INTEGER NOT NULL CHECK (quantity > 0),
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (bottle_size_id) REFERENCES bottle_sizes(id),
+    UNIQUE(user_id, date, bottle_size_id)
+);`
+	if _, err := db.Exec(waterCountsTable); err != nil {
+		return err
+	}
+
+	// Create the "bottle_sizes" table.
+	bottleSizesTable := `
+ CREATE TABLE IF NOT EXISTS bottle_sizes (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     size_ml INTEGER UNIQUE NOT NULL
  );`
-	_, err := db.Exec(waterCountsTable)
+	res, err := db.Exec(bottleSizesTable)
+
+	if err != nil {
+		return err
+	}
+	if i, err := res.RowsAffected(); i == 0 {
+		if err != nil {
+			return err
+		}
+		// insert the sizes
+		for _, size := range bottleSizes {
+			if _, err := db.Exec("INSERT INTO bottle_sizes (size_ml) VALUES (?)", size); err != nil {
+				return err
+			}
+		}
+	}
+
 	return err
 }
 
@@ -305,23 +337,7 @@ func incrementHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	increment := r.FormValue("increment")
-	var column string
-	switch increment {
-	case "330ml":
-		column = "count_330ml"
-	case "500ml":
-		column = "count_500ml"
-	case "750ml":
-		column = "count_750ml"
-	case "1000ml":
-		column = "count_1000ml"
-	case "1500ml":
-		column = "count_1500ml"
-	default:
-		http.Error(w, "Invalid increment", http.StatusBadRequest)
-		return
-	}
+	amount := r.FormValue("amount")
 
 	today := time.Now().Format("02-01-2006")
 	// Update today's counter; if no record exists, insert one.
